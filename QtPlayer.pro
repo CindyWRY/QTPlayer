@@ -26,9 +26,11 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
         main.cpp \
         mainwindow.cpp \
-    avpacketqueue.cpp \
     decoder.cpp \
-    audiodecoder.cpp 
+    audiodecoder.cpp \ 
+    basicavpacketqueue.cpp \
+
+
 
 INCLUDEPATH += $$PWD/ffmpeg/include \
                 $$PWD/sdl/include
@@ -45,9 +47,10 @@ LIBS    += $$PWD/ffmpeg/lib/avcodec.lib \
 
 HEADERS += \
         mainwindow.h \
-    avpacketqueue.h \
     decoder.h \
-    audiodecoder.h 
+    audiodecoder.h \ 
+    basicavpacketqueue.h \
+
 
 FORMS += \
         mainwindow.ui

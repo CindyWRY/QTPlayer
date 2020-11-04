@@ -51,31 +51,31 @@ private:
 
     Ui::MainWindow *ui;
 
-    Decoder *decoder;
-    QList<QString> playList;    // list to stroe video files in same path
+    DecoderThread *m_decoder;
+    QList<QString> m_playList;    // 列表以在相同的路径stroe视频文件
 
-    QString currentPlay;        // current playing video file path
-    QString currentPlayType;
+    QString m_currentPlay;        // 当前播放的视频文件路径
+    QString m_currentPlayType;
 
-    QTimer *menuTimer;      // menu hide timer
-    QTimer *progressTimer;  // check play progress timer
+    QTimer *m_menuTimer;      // 菜单隐藏计时器
+    QTimer *m_progressTimer;  // 检查播放进度计时器
 
-    bool menuIsVisible;     // switch to control show/hide menu
-    bool isKeepAspectRatio; // switch to control image scale whether keep aspect ratio
+    bool m_menuIsVisible;     // 切换到控制显示/隐藏菜单
+    bool m_isKeepAspectRatio; // 切换控制图像缩放是否保持高宽比
 
-    QImage image;
+    QImage m_image;
 
-    bool autoPlay;          // switch to control whether to continue to playing other file
-    bool loopPlay;          // switch to control whether to continue to playing same file
-    bool closeNotExit;      // switch to control click exit button not exit but hide
+    bool m_autoPlay;          // 切换控制是否继续播放其他文件
+    bool m_loopPlay;          // 切换以控制是否继续播放同一文件
+    bool m_closeNotExit;      // 切换到控制，点击退出按钮不是退出，而是隐藏
 
-    Decoder::PlayState playState;
+    DecoderThread::PlayState m_playState;
 
-    QVector<QWidget *> hideVector;
+    QVector<QWidget *> m_hideVector;
 
-    qint64 timeTotal;
+    qint64 m_timeTotal;
 
-    int seekInterval;
+    int m_seekInterval;
 
 private slots:
     void buttonClickSlot();
@@ -84,7 +84,7 @@ private slots:
     void editText();
     void seekProgress(int value);
     void videoTime(qint64 time);
-    void playStateChanged(Decoder::PlayState state);
+    void playStateChanged(DecoderThread::PlayState state);
 
     /* right click menu slot */
     void setFullScreen();

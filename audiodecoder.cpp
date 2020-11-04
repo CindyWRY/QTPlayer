@@ -9,15 +9,15 @@
 
 AudioDecoder::AudioDecoder(QObject *parent) :
     QObject(parent),
-    isStop(false),
-    isPause(false),
-    isreadFinished(false),
-    totalTime(0),
-    clock(0),
-    volume(SDL_MIX_MAXVOLUME),
-    audioDeviceFormat(AUDIO_F32SYS),
-    aCovertCtx(NULL),
-    sendReturn(0)
+    m_isStop(false),
+    m_isPause(false),
+    m_isreadFinished(false),
+  //  m_totalTime(0),
+    m_audioClock(0),
+    m_volume(SDL_MIX_MAXVOLUME),
+    m_audioDeviceFormat(AUDIO_F32SYS),
+    m_aCovertCtx(NULL),
+    m_sendReturn(0)
 {
 
 }
@@ -34,55 +34,63 @@ int AudioDecoder::openAudio(AVFormatContext *pFormatCtx, int index)
     int nextSampleRates[]  = {0, 44100, 48000, 96000, 192000};
     int nextSampleRateIdx = FF_ARRAY_ELEMS(nextSampleRates) - 1;
 
-    isStop = false;
-    isPause = false;
-    isreadFinished = false;
+    m_isStop = false;
+    m_isPause = false;
+    m_isreadFinished = false;
 
-    audioSrcFmt = AV_SAMPLE_FMT_NONE;
-    audioSrcChannelLayout = 0;
-    audioSrcFreq = 0;
+    m_audioSrcFmt = AV_SAMPLE_FMT_NONE;
+    m_audioSrcChannelLayout = 0;
+    m_audioSrcFreq = 0;
 
+	//discard useless packets like 0 size packets in avi
     pFormatCtx->streams[index]->discard = AVDISCARD_DEFAULT;
 
-    stream = pFormatCtx->streams[index];
-
-    codecCtx = avcodec_alloc_context3(NULL);
-    avcodec_parameters_to_context(codecCtx, pFormatCtx->streams[index]->codecpar);
+    m_audioStream = pFormatCtx->streams[index];
+	
+	/* Fill the codec context based on the values from the supplied codec
+  	parameters. Any allocated fields in codec that have a corresponding field in
+  	par are freed and replaced with duplicates of the corresponding field in par.*/
+    m_codecCtx = avcodec_alloc_context3(NULL);
+    avcodec_parameters_to_context(m_codecCtx, pFormatCtx->streams[index]->codecpar);
 
     /* find audio decoder */
-    if ((codec = avcodec_find_decoder(codecCtx->codec_id)) == NULL) {
-        avcodec_free_context(&codecCtx);
+    if ((codec = avcodec_find_decoder(m_codecCtx->codec_id)) == NULL) {
+        avcodec_free_context(&m_codecCtx);
         qDebug() << "Audio decoder not found.";
         return -1;
     }
 
     /* open audio decoder */
-    if (avcodec_open2(codecCtx, codec, NULL) < 0) {
-        avcodec_free_context(&codecCtx);
+    if (avcodec_open2(m_codecCtx, codec, NULL) < 0) {
+        avcodec_free_context(&m_codecCtx);
         qDebug() << "Could not open audio decoder.";
         return -1;
     }
 
-    totalTime = pFormatCtx->duration;
+  //  m_totalTime = pFormatCtx->duration;
 
     env = SDL_getenv("SDL_AUDIO_CHANNELS");
     if (env) {
         qDebug() << "SDL audio channels";
         wantedNbChannels = atoi(env);
-        audioDstChannelLayout = av_get_default_channel_layout(wantedNbChannels);
+		// Return default channel layout for a given number of channels.
+        m_audioDstChannelLayout = av_get_default_channel_layout(wantedNbChannels);
     }
 
-    wantedNbChannels = codecCtx->channels;
-    if (!audioDstChannelLayout ||
-        (wantedNbChannels != av_get_channel_layout_nb_channels(audioDstChannelLayout))) {
-        audioDstChannelLayout = av_get_default_channel_layout(wantedNbChannels);
-        audioDstChannelLayout &= ~AV_CH_LAYOUT_STEREO_DOWNMIX;
+    wantedNbChannels = m_codecCtx->channels;
+    if (!m_audioDstChannelLayout ||
+		// the number of channels in the channel layout
+        (wantedNbChannels != av_get_channel_layout_nb_channels(m_audioDstChannelLayout))) {
+        //Return default channel layout for a given number of channels.
+		m_audioDstChannelLayout = av_get_default_channel_layout(wantedNbChannels);
+        m_audioDstChannelLayout &= ~AV_CH_LAYOUT_STEREO_DOWNMIX;
     }
 
-    wantedSpec.channels    = av_get_channel_layout_nb_channels(audioDstChannelLayout);
-    wantedSpec.freq        = codecCtx->sample_rate;
+    wantedSpec.channels    = av_get_channel_layout_nb_channels(m_audioDstChannelLayout);
+    wantedSpec.freq        = m_codecCtx->sample_rate;
+	
     if (wantedSpec.freq <= 0 || wantedSpec.channels <= 0) {
-        avcodec_free_context(&codecCtx);
+        avcodec_free_context(&m_codecCtx);
         qDebug() << "Invalid sample rate or channel count, freq: " << wantedSpec.freq << " channels: " << wantedSpec.channels;
         return -1;
     }
@@ -91,81 +99,89 @@ int AudioDecoder::openAudio(AVFormatContext *pFormatCtx, int index)
         nextSampleRateIdx--;
     }
 
-    wantedSpec.format      = audioDeviceFormat;
+    wantedSpec.format      = m_audioDeviceFormat;
     wantedSpec.silence     = 0;
     wantedSpec.samples     = FFMAX(SDL_AUDIO_MIN_BUFFER_SIZE, 2 << av_log2(wantedSpec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC));
     wantedSpec.callback    = &AudioDecoder::audioCallback;
     wantedSpec.userdata    = this;
 
     /* This function opens the audio device with the desired parameters, placing
-     * the actual hardware parameters in the structure pointed to spec.
-     */
+     * the actual hardware parameters in the structure pointed to m_spec.
+     */ // ������Ƶ�豸��������Ƶ�����̡߳������Ĳ�����wanted_spec��ʵ�ʵõ���Ӳ��������spec
+    // 1) SDL�ṩ����ʹ��Ƶ�豸ȡ����Ƶ���ݷ�����
+    //    a. push��SDL���ض���Ƶ�ʵ��ûص��������ڻص�������ȡ����Ƶ����
+    //    b. pull���û��������ض���Ƶ�ʵ���SDL_QueueAudio()������Ƶ�豸�ṩ���ݡ���������wanted_spec.callback=NULL
+  
     while (1) {
-        while (SDL_OpenAudio(&wantedSpec, &spec) < 0) {
+        while (SDL_OpenAudio(&wantedSpec, &m_spec) < 0) {
             qDebug() << QString("SDL_OpenAudio (%1 channels, %2 Hz): %3")
                     .arg(wantedSpec.channels).arg(wantedSpec.freq).arg(SDL_GetError());
-            wantedSpec.channels = nextNbChannels[FFMIN(7, wantedSpec.channels)];
+
+			wantedSpec.channels = nextNbChannels[FFMIN(7, wantedSpec.channels)];
             if (!wantedSpec.channels) {
                 wantedSpec.freq = nextSampleRates[nextSampleRateIdx--];
                 wantedSpec.channels = wantedNbChannels;
                 if (!wantedSpec.freq) {
-                    avcodec_free_context(&codecCtx);
+                    avcodec_free_context(&m_codecCtx);
                     qDebug() << "No more combinations to try, audio open failed";
                     return -1;
                 }
             }
-            audioDstChannelLayout = av_get_default_channel_layout(wantedSpec.channels);
+            m_audioDstChannelLayout = av_get_default_channel_layout(wantedSpec.channels);
         }
 
-        if (spec.format != audioDeviceFormat) {
+        if (m_spec.format != m_audioDeviceFormat) {
             qDebug() << "SDL audio format: " << wantedSpec.format << " is not supported"
-                     << ", set to advised audio format: " <<  spec.format;
-            wantedSpec.format = spec.format;
-            audioDeviceFormat = spec.format;
+                     << ", set to advised audio format: " <<  m_spec.format;
+            wantedSpec.format = m_spec.format;
+            m_audioDeviceFormat = m_spec.format;
             SDL_CloseAudio();
         } else {
             break;
         }
     }
 
-    if (spec.channels != wantedSpec.channels) {
-        audioDstChannelLayout = av_get_default_channel_layout(spec.channels);
-        if (!audioDstChannelLayout) {
-            avcodec_free_context(&codecCtx);
-            qDebug() << "SDL advised channel count " << spec.channels << " is not supported!";
+    if (m_spec.channels != wantedSpec.channels) {
+        m_audioDstChannelLayout = av_get_default_channel_layout(m_spec.channels);
+        if (!m_audioDstChannelLayout) {
+            avcodec_free_context(&m_codecCtx);
+            qDebug() << "SDL advised channel count " << m_spec.channels << " is not supported!";
             return -1;
         }
     }
 
     /* set sample format */
-    switch (audioDeviceFormat) {
+    switch (m_audioDeviceFormat) {
     case AUDIO_U8:
-        audioDstFmt    = AV_SAMPLE_FMT_U8;
-        audioDepth = 1;
+        m_audioDstFmt    = AV_SAMPLE_FMT_U8;
+        m_audioDepth = 1;
         break;
 
     case AUDIO_S16SYS:
-        audioDstFmt    = AV_SAMPLE_FMT_S16;
-        audioDepth = 2;
+        m_audioDstFmt    = AV_SAMPLE_FMT_S16;
+        m_audioDepth = 2;
         break;
 
     case AUDIO_S32SYS:
-        audioDstFmt    = AV_SAMPLE_FMT_S32;
-        audioDepth = 4;
+        m_audioDstFmt    = AV_SAMPLE_FMT_S32;
+        m_audioDepth = 4;
         break;
 
     case AUDIO_F32SYS:
-        audioDstFmt    = AV_SAMPLE_FMT_FLT;
-        audioDepth = 4;
+        m_audioDstFmt    = AV_SAMPLE_FMT_FLT;
+        m_audioDepth = 4;
         break;
 
     default:
-        audioDstFmt    = AV_SAMPLE_FMT_S16;
-        audioDepth = 2;
+        m_audioDstFmt    = AV_SAMPLE_FMT_S16;
+        m_audioDepth = 2;
         break;
     }
 
     /* open sound */
+	
+	// 2) ��Ƶ�豸�򿪺󲥷ž������������ص���
+	//����SDL_PauseAudio(0)�������ص�����ʼ����������Ƶ
     SDL_PauseAudio(0);
 
     return 0;
@@ -179,68 +195,68 @@ void AudioDecoder::closeAudio()
     SDL_CloseAudio();
     SDL_UnlockAudio();
 
-    avcodec_close(codecCtx);
-    avcodec_free_context(&codecCtx);
+    avcodec_close(m_codecCtx);
+    avcodec_free_context(&m_codecCtx);
 }
 
 void AudioDecoder::readFileFinished()
 {
-    isreadFinished = true;
+    m_isreadFinished = true;
 }
 
 void AudioDecoder::pauseAudio(bool pause)
 {
-    isPause = pause;
+    m_isPause = pause;
 }
 
 void AudioDecoder::stopAudio()
 {
-    isStop = true;
+    m_isStop = true;
 }
 
-void AudioDecoder::packetEnqueue(AVPacket *packet)
+void AudioDecoder::audioPacketEnqueue(AVPacket *packet)
 {
-    packetQueue.enqueue(packet);
+    m_AudioPacketQueue.basEnqueue(packet);
 }
 
 void AudioDecoder::emptyAudioData()
 {
-    audioBuf = nullptr;
+    m_audioBuf = nullptr;
 
-    audioBufIndex = 0;
-    audioBufSize = 0;
-    audioBufSize1 = 0;
+    m_audioBufIndex = 0;
+    m_audioBufSize = 0;
+    m_audioBufSize1 = 0;
 
-    clock = 0;
+    m_audioClock = 0;
 
-    sendReturn = 0;
+    m_sendReturn = 0;
 
-    packetQueue.empty();
+    m_AudioPacketQueue.empty();
 }
 
 int AudioDecoder::getVolume()
 {
-    return volume;
+    return m_volume;
 }
 
 void AudioDecoder::setVolume(int volume)
 {
-    this->volume = volume;
+    this->m_volume = volume;
 }
 
 double AudioDecoder::getAudioClock()
 {
-    if (codecCtx) {
+    if (m_codecCtx) {
         /* control audio pts according to audio buffer data size */
-        int hwBufSize   = audioBufSize - audioBufIndex;
-        int bytesPerSec = codecCtx->sample_rate * codecCtx->channels * audioDepth;
+        int hwBufSize   = m_audioBufSize - m_audioBufIndex;
+        int bytesPerSec = m_codecCtx->sample_rate * m_codecCtx->channels * m_audioDepth;
 
-        clock -= static_cast<double>(hwBufSize) / bytesPerSec;
+        m_audioClock -= static_cast<double>(hwBufSize) / bytesPerSec;
     }
 
-    return clock;
+    return m_audioClock;
 }
-
+/*�ص���������SDL��������������,*/
 void AudioDecoder::audioCallback(void *userdata, quint8 *stream, int SDL_AudioBufSize)
 {
     AudioDecoder *decoder = (AudioDecoder *)userdata;
@@ -250,44 +266,44 @@ void AudioDecoder::audioCallback(void *userdata, quint8 *stream, int SDL_AudioBu
      * while it greater than 0, means counld fill data to it
      */
     while (SDL_AudioBufSize > 0) {
-        if (decoder->isStop) {
+        if (decoder->m_isStop) {
             return ;
         }
 
-        if (decoder->isPause) {
+        if (decoder->m_isPause) {
             SDL_Delay(10);
             continue;
         }
 
         /* no data in buffer */
-        if (decoder->audioBufIndex >= decoder->audioBufSize) {
+        if (decoder->m_audioBufIndex >= decoder->m_audioBufSize) {
 
             decodedSize = decoder->decodeAudio();
             /* if error, just output silence */
             if (decodedSize < 0) {
                 /* if not decoded data, just output silence */
-                decoder->audioBufSize = 1024;
-                decoder->audioBuf = nullptr;
+                decoder->m_audioBufSize = 1024;
+                decoder->m_audioBuf = nullptr;
             } else {
-                decoder->audioBufSize = decodedSize;
+                decoder->m_audioBufSize = decodedSize;
             }
-            decoder->audioBufIndex = 0;
+            decoder->m_audioBufIndex = 0;
         }
 
         /* calculate number of data that haven't play */
-        int left = decoder->audioBufSize - decoder->audioBufIndex;
+        int left = decoder->m_audioBufSize - decoder->m_audioBufIndex;
         if (left > SDL_AudioBufSize) {
             left = SDL_AudioBufSize;
         }
 
-        if (decoder->audioBuf) {
+        if (decoder->m_audioBuf) {
             memset(stream, 0, left);
-            SDL_MixAudio(stream, decoder->audioBuf + decoder->audioBufIndex, left, decoder->volume);
+            SDL_MixAudio(stream, decoder->m_audioBuf + decoder->m_audioBufIndex, left, decoder->m_volume);
         }
 
         SDL_AudioBufSize -= left;
         stream += left;
-        decoder->audioBufIndex += left;
+        decoder->m_audioBufIndex += left;
     }
 }
 
@@ -302,13 +318,13 @@ int AudioDecoder::decodeAudio()
         return -1;
     }
 
-    if (isStop) {
+    if (m_isStop) {
         return -1;
     }
 
-    if (packetQueue.queueSize() <= 0) {
-        if (isreadFinished) {
-            isStop = true;
+    if (m_AudioPacketQueue.queueSize() <= 0) {
+        if (m_isreadFinished) {
+            m_isStop = true;
             SDL_Delay(100);
             emit playFinished();
         }
@@ -316,15 +332,15 @@ int AudioDecoder::decodeAudio()
     }
 
     /* get new packet whiel last packet all has been resolved */
-    if (sendReturn != AVERROR(EAGAIN)) {
-        packetQueue.dequeue(&packet, true);
+    if (m_sendReturn != AVERROR(EAGAIN)) {
+        m_AudioPacketQueue.basDequeue(&m_AudioPacket, true);
     }
 
-    if (!strcmp((char*)packet.data, "FLUSH")) {
-        avcodec_flush_buffers(codecCtx);
-        av_packet_unref(&packet);
+    if (!strcmp((char*)m_AudioPacket.data, "FLUSH")) {
+        avcodec_flush_buffers(m_codecCtx);
+        av_packet_unref(&m_AudioPacket);
         av_frame_free(&frame);
-        sendReturn = 0;
+        m_sendReturn = 0;
         qDebug() << "seek audio";
         return -1;
     }
@@ -332,24 +348,24 @@ int AudioDecoder::decodeAudio()
     /* while return -11 means packet have data not resolved,
      * this packet cannot be unref
      */
-    sendReturn = avcodec_send_packet(codecCtx, &packet);
-    if ((sendReturn < 0) && (sendReturn != AVERROR(EAGAIN)) && (sendReturn != AVERROR_EOF)) {
-        av_packet_unref(&packet);
+    m_sendReturn = avcodec_send_packet(m_codecCtx, &m_AudioPacket);
+    if ((m_sendReturn < 0) && (m_sendReturn != AVERROR(EAGAIN)) && (m_sendReturn != AVERROR_EOF)) {
+        av_packet_unref(&m_AudioPacket);
         av_frame_free(&frame);
-        qDebug() << "Audio send to decoder failed, error code: " << sendReturn;
-        return sendReturn;
+        qDebug() << "Audio send to decoder failed, error code: " << m_sendReturn;
+        return m_sendReturn;
     }
 
-    ret = avcodec_receive_frame(codecCtx, frame);
+    ret = avcodec_receive_frame(m_codecCtx, frame);
     if ((ret < 0) && (ret != AVERROR(EAGAIN))) {
-        av_packet_unref(&packet);
+        av_packet_unref(&m_AudioPacket);
         av_frame_free(&frame);
         qDebug() << "Audio frame decode failed, error code: " << ret;
         return ret;
     }
 
     if (frame->pts != AV_NOPTS_VALUE) {
-        clock = av_q2d(stream->time_base) * frame->pts;
+        m_audioClock = av_q2d(m_audioStream->time_base) * frame->pts;
 //        qDebug() << "no pts";
     }
 
@@ -357,61 +373,61 @@ int AudioDecoder::decodeAudio()
     qint64 inChannelLayout = (frame->channel_layout && frame->channels == av_get_channel_layout_nb_channels(frame->channel_layout)) ?
                 frame->channel_layout : av_get_default_channel_layout(frame->channels);
 
-    if (frame->format       != audioSrcFmt              ||
-        inChannelLayout     != audioSrcChannelLayout    ||
-        frame->sample_rate  != audioSrcFreq             ||
-        !aCovertCtx) {
-        if (aCovertCtx) {
-            swr_free(&aCovertCtx);
+    if (frame->format       != m_audioSrcFmt              ||
+        inChannelLayout     != m_audioSrcChannelLayout    ||
+        frame->sample_rate  != m_audioSrcFreq             ||
+        !m_aCovertCtx) {
+        if (m_aCovertCtx) {
+            swr_free(&m_aCovertCtx);
         }
 
         /* init swr audio convert context */
-        aCovertCtx = swr_alloc_set_opts(nullptr, audioDstChannelLayout, audioDstFmt, spec.freq,
+        m_aCovertCtx = swr_alloc_set_opts(nullptr, m_audioDstChannelLayout, m_audioDstFmt, m_spec.freq,
                 inChannelLayout, (AVSampleFormat)frame->format , frame->sample_rate, 0, NULL);
-        if (!aCovertCtx || (swr_init(aCovertCtx) < 0)) {
-            av_packet_unref(&packet);
+        if (!m_aCovertCtx || (swr_init(m_aCovertCtx) < 0)) {
+            av_packet_unref(&m_AudioPacket);
             av_frame_free(&frame);
             return -1;
         }
 
-        audioSrcFmt             = (AVSampleFormat)frame->format;
-        audioSrcChannelLayout   = inChannelLayout;
-        audioSrcFreq            = frame->sample_rate;
-        audioSrcChannels        = frame->channels;
+        m_audioSrcFmt             = (AVSampleFormat)frame->format;
+        m_audioSrcChannelLayout   = inChannelLayout;
+        m_audioSrcFreq            = frame->sample_rate;
+        m_audioSrcChannels        = frame->channels;
     }
 
-    if (aCovertCtx) {
+    if (m_aCovertCtx) {
         const quint8 **in   = (const quint8 **)frame->extended_data;
         uint8_t *out[] = {audioBuf1};
 
-        int outCount = sizeof(audioBuf1) / spec.channels / av_get_bytes_per_sample(audioDstFmt);
+        int outCount = sizeof(audioBuf1) / m_spec.channels / av_get_bytes_per_sample(m_audioDstFmt);
 
-        int sampleSize = swr_convert(aCovertCtx, out, outCount, in, frame->nb_samples);
+        int sampleSize = swr_convert(m_aCovertCtx, out, outCount, in, frame->nb_samples);
         if (sampleSize < 0) {
             qDebug() << "swr convert failed";
-            av_packet_unref(&packet);
+            av_packet_unref(&m_AudioPacket);
             av_frame_free(&frame);
             return -1;
         }
 
         if (sampleSize == outCount) {
             qDebug() << "audio buffer is probably too small";
-            if (swr_init(aCovertCtx) < 0) {
-                swr_free(&aCovertCtx);
+            if (swr_init(m_aCovertCtx) < 0) {
+                swr_free(&m_aCovertCtx);
             }
         }
 
-        audioBuf = audioBuf1;
-        resampledDataSize = sampleSize * spec.channels * av_get_bytes_per_sample(audioDstFmt);
+        m_audioBuf = audioBuf1;
+        resampledDataSize = sampleSize * m_spec.channels * av_get_bytes_per_sample(m_audioDstFmt);
     } else {
-        audioBuf = frame->data[0];
+        m_audioBuf = frame->data[0];
         resampledDataSize = av_samples_get_buffer_size(NULL, frame->channels, frame->nb_samples, static_cast<AVSampleFormat>(frame->format), 1);
     }
 
-    clock += static_cast<double>(resampledDataSize) / (audioDepth * codecCtx->channels * codecCtx->sample_rate);
+    m_audioClock += static_cast<double>(resampledDataSize) / (m_audioDepth * m_codecCtx->channels * m_codecCtx->sample_rate);
 
-    if (sendReturn != AVERROR(EAGAIN)) {
-        av_packet_unref(&packet);
+    if (m_sendReturn != AVERROR(EAGAIN)) {
+        av_packet_unref(&m_AudioPacket);
     }
 
     av_frame_free(&frame);

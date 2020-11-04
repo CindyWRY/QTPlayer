@@ -8,5 +8,6 @@
         <file>image/play.ico</file>
         <file>image/player.ico</file>
         <file>image/stop.ico</file>
+        <file>image/bac.jpg</file>
     </qresource>
 </RCC>

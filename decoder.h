@@ -19,7 +19,7 @@ extern "C"
 
 #include "audiodecoder.h"
 
-class Decoder : public QThread
+class DecoderThread : public QThread
 {
     Q_OBJECT
 
@@ -31,63 +31,63 @@ public:
         FINISH
     };
 
-    explicit Decoder();
-    ~Decoder();
+    explicit DecoderThread();
+    ~DecoderThread();
 
     double getCurrentTime();
-    void seekProgress(qint64 pos);
+    void decoderSeekProgress(qint64 pos);
     int getVolume();
     void setVolume(int volume);
 
 private:
     void run();
     void clearData();
-    void setPlayState(Decoder::PlayState state);
+    void setPlayState(DecoderThread::PlayState state);
     void displayVideo(QImage image);
     static int videoThread(void *arg);
     double synchronize(AVFrame *frame, double pts);
-    bool isRealtime(AVFormatContext *pFormatCtx);
+    bool isRealtime(AVFormatContext *m_pFormatCtx);
     int initFilter();
 
-    int fileType;
+    int m_fileType;
 
-    int videoIndex;
-    int audioIndex;
-    int subtitleIndex;
+    int m_videoIndex;
+    int m_audioIndex;
+    int m_subtitleIndex;
 
-    QString currentFile;
-    QString currentType;
+    QString m_currentFile;//file name
+    QString m_currentType;//file type 
 
-    qint64 timeTotal;
+    qint64 m_timeTotal;
 
-    AVPacket seekPacket;
-    qint64 seekPos;
-    double seekTime;
+    AVPacket m_seekPacket;
+    qint64 m_seekPos;
+    double m_seekTime;
 
-    PlayState playState;
-    bool isStop;
-    bool gotStop;
-    bool isPause;
-    bool isSeek;
-    bool isReadFinished;
-    bool isDecodeFinished;
+    PlayState m_playState;
+    bool m_isStop;
+    bool m_gotStop;
+    bool m_isPause;
+    bool m_isSeek;
+    bool m_isReadFinished;
+    bool m_isDecodeFinished;
 
-    AVFormatContext *pFormatCtx;
+    AVFormatContext *m_pFormatCtx;
 
-    AVCodecContext *pCodecCtx;          // video codec context
+    AVCodecContext *m_pCodecCtx;          // video codec context
 
-    AvPacketQueue videoQueue;
-    AvPacketQueue subtitleQueue;
+    BasicAvPacketQueue m_videoQueue;
+    BasicAvPacketQueue m_subtitleQueue;
 
-    AVStream *videoStream;
+    AVStream *m_videoStream;//��Ƶ��
 
-    double videoClk;    // video frame timestamp
+    double m_videoClk;    // video frame timestamp
 
-    AudioDecoder *audioDecoder;
+    AudioDecoder *m_audioDecoder;
 
-    AVFilterGraph   *filterGraph;
-    AVFilterContext *filterSinkCxt;
-    AVFilterContext *filterSrcCxt;
+    AVFilterGraph   *m_filterGraph;
+    AVFilterContext *m_filterSinkCxt;
+    AVFilterContext *m_filterSrcCxt;
 
 public slots:
     void decoderFile(QString file, QString type);
@@ -99,7 +99,7 @@ signals:
     void readFinished();
     void gotVideo(QImage image);
     void gotVideoTime(qint64 time);
-    void playStateChanged(Decoder::PlayState state);
+    void playStateChanged(DecoderThread::PlayState state);
 
 };
 

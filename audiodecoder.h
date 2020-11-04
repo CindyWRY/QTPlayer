@@ -8,7 +8,9 @@ extern "C"
 #include "libswresample/swresample.h"
 }
 
-#include "avpacketqueue.h"
+#include "basicavpacketqueue.h"
+
+
 
 class AudioDecoder : public QObject
 {
@@ -23,50 +25,50 @@ public:
     int getVolume();
     void setVolume(int volume);
     double getAudioClock();
-    void packetEnqueue(AVPacket *packet);
+    void audioPacketEnqueue(AVPacket *packet);
     void emptyAudioData();
-    void setTotalTime(qint64 time);
+  //  void setTotalTime(qint64 time);
 
 private:
     int decodeAudio();
     static void audioCallback(void *userdata, quint8 *stream, int SDL_AudioBufSize);
 
-    bool isStop;
-    bool isPause;
-    bool isreadFinished;
+    bool m_isStop;
+    bool m_isPause;
+    bool m_isreadFinished;
 
-    qint64 totalTime;
-    double clock;
-    int volume;
+   // qint64 m_totalTime;
+    double m_audioClock;
+    int m_volume;
 
-    AVStream *stream;
+    AVStream *m_audioStream;
 
-    quint8 *audioBuf;
-    quint32 audioBufSize;
+    quint8 *m_audioBuf;
+    quint32 m_audioBufSize;
     DECLARE_ALIGNED(16, quint8, audioBuf1) [192000];
-    quint32 audioBufSize1;
-    quint32 audioBufIndex;
+    quint32 m_audioBufSize1;
+    quint32 m_audioBufIndex;
 
-    SDL_AudioSpec spec;
+    SDL_AudioSpec m_spec;
 
-    quint32 audioDeviceFormat;  // audio device sample format
-    quint8 audioDepth;
-    struct SwrContext *aCovertCtx;
-    qint64 audioDstChannelLayout;
-    enum AVSampleFormat audioDstFmt;   // audio decode sample format
+    quint32 m_audioDeviceFormat;  // audio device sample format
+    quint8 m_audioDepth;
+    struct SwrContext *m_aCovertCtx;//ÒôÆµÖØ²ÉÑù
+    qint64 m_audioDstChannelLayout;
+    enum AVSampleFormat m_audioDstFmt;   // audio decode sample format ï¿½ï¿½Æµï¿½Ä²ï¿½ï¿½ï¿½ï¿½ï¿½Ê½ï¿½ï¿½
 
-    qint64 audioSrcChannelLayout;
-    int audioSrcChannels;
-    enum AVSampleFormat audioSrcFmt;
-    int audioSrcFreq;
+    qint64 m_audioSrcChannelLayout;
+    int m_audioSrcChannels;
+    enum AVSampleFormat m_audioSrcFmt;
+    int m_audioSrcFreq;
 
-    AVCodecContext *codecCtx;          // audio codec context
+    AVCodecContext *m_codecCtx;          // audio codec context
 
-    AvPacketQueue packetQueue;
+    BasicAvPacketQueue m_AudioPacketQueue;
 
-    AVPacket packet;
+    AVPacket m_AudioPacket;
 
-    int sendReturn;
+    int m_sendReturn;
 
 signals:
     void playFinished();

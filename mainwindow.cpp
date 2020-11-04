@@ -21,26 +21,26 @@ extern "C"
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
-    decoder(new Decoder),
-    menuTimer(new QTimer),
-    progressTimer(new QTimer),
-    menuIsVisible(true),
-    isKeepAspectRatio(false),
-    image(QImage(":/image/MUSIC.jpg")),
-    autoPlay(true),
-    loopPlay(false),
-    closeNotExit(false),
-    playState(Decoder::STOP),
-    seekInterval(15)
+    m_decoder(new DecoderThread),
+    m_menuTimer(new QTimer),
+    m_progressTimer(new QTimer),
+    m_menuIsVisible(true),
+    m_isKeepAspectRatio(false),
+    m_image(QImage(":/image/bac.jpg")),
+    m_autoPlay(true),
+    m_loopPlay(false),
+    m_closeNotExit(false),
+    m_playState(DecoderThread::STOP),
+    m_seekInterval(15)
 {
     ui->setupUi(this);
 
-    qRegisterMetaType<Decoder::PlayState>("Decoder::PlayState");
+    qRegisterMetaType<DecoderThread::PlayState>("Decoder::PlayState");
 
-    menuTimer->setInterval(8000);
-    menuTimer->start(5000);
+    m_menuTimer->setInterval(8000);
+    m_menuTimer->start(5000);
 
-    progressTimer->setInterval(500);
+    m_progressTimer->setInterval(500);
 
     initUI();
     initTray();
@@ -91,7 +91,8 @@ void MainWindow::initUI()
     setHide(ui->lineEdit);
     setHide(ui->videoProgressSlider);
     setHide(ui->labelTime);
-
+	//��QObject�������installEvenFilter������
+	//��Ϊ�����װ������������ʹ���¼�������������ơ�
     ui->videoProgressSlider->installEventFilter(this);
 }
 
@@ -125,18 +126,18 @@ void MainWindow::initSlot()
     connect(ui->btnPreview,     SIGNAL(clicked(bool)), this, SLOT(buttonClickSlot()));
     connect(ui->lineEdit,       SIGNAL(cursorPositionChanged(int,int)),     this, SLOT(editText()));
 
-    connect(menuTimer,      SIGNAL(timeout()), this, SLOT(timerSlot()));
-    connect(progressTimer,  SIGNAL(timeout()), this, SLOT(timerSlot()));
-
+    connect(m_menuTimer,      SIGNAL(timeout()), this, SLOT(timerSlot()));
+    connect(m_progressTimer,  SIGNAL(timeout()), this, SLOT(timerSlot()));
+//���û��϶����飬����sliderMoved �źš�
     connect(ui->videoProgressSlider,    SIGNAL(sliderMoved(int)), this, SLOT(seekProgress(int)));
 
-    connect(this, SIGNAL(selectedVideoFile(QString,QString)),   decoder, SLOT(decoderFile(QString,QString)));
-    connect(this, SIGNAL(stopVideo()),                          decoder, SLOT(stopVideo()));
-    connect(this, SIGNAL(pauseVideo()),                         decoder, SLOT(pauseVideo()));
+    connect(this, SIGNAL(selectedVideoFile(QString,QString)),   m_decoder, SLOT(decoderFile(QString,QString)));
+    connect(this, SIGNAL(stopVideo()),                          m_decoder, SLOT(stopVideo()));
+    connect(this, SIGNAL(pauseVideo()),                         m_decoder, SLOT(pauseVideo()));
 
-    connect(decoder, SIGNAL(playStateChanged(Decoder::PlayState)),  this, SLOT(playStateChanged(Decoder::PlayState)));
-    connect(decoder, SIGNAL(gotVideoTime(qint64)),                  this, SLOT(videoTime(qint64)));
-    connect(decoder, SIGNAL(gotVideo(QImage)),                      this, SLOT(showVideo(QImage)));
+    connect(m_decoder, SIGNAL(playStateChanged(DecoderThread::PlayState)),  this, SLOT(playStateChanged(DecoderThread::PlayState)));
+    connect(m_decoder, SIGNAL(gotVideoTime(qint64)),                  this, SLOT(videoTime(qint64)));
+    connect(m_decoder, SIGNAL(gotVideo(QImage)),                      this, SLOT(showVideo(QImage)));
 }
 
 void MainWindow::initTray()
@@ -147,11 +148,11 @@ void MainWindow::initTray()
     trayIcon->setIcon(QIcon(":/image/player.ico"));
     trayIcon->show();
 
-    QAction *minimizeAction = new QAction(tr("最小化 (&I)"), this);
+    QAction *minimizeAction = new QAction(tr("minimize(&I)"), this);
     connect(minimizeAction, SIGNAL(triggered()), this, SLOT(hide()));
-    QAction *restoreAction = new QAction(tr("还原 (&R)"), this);
+    QAction *restoreAction = new QAction(tr("restore(&R)"), this);
     connect(restoreAction, SIGNAL(triggered()), this, SLOT(showNormal()));
-    QAction *quitAction = new QAction(tr("退出 (&Q)"), this);
+    QAction *quitAction = new QAction(tr("quit(&Q)"), this);
     connect(quitAction, SIGNAL(triggered()), qApp, SLOT(quit()));
 
     /* tray right click menu */
@@ -182,8 +183,8 @@ void MainWindow::paintEvent(QPaintEvent *event)
     painter.setBrush(Qt::black);
     painter.drawRect(0, 0, width, height);
 
-    if (isKeepAspectRatio) {
-        QImage img = image.scaled(QSize(width, height), Qt::KeepAspectRatio);
+    if (m_isKeepAspectRatio) {
+        QImage img = m_image.scaled(QSize(width, height), Qt::KeepAspectRatio);
 
         /* calculate display position */
         int x = (this->width() - img.width()) / 2;
@@ -191,7 +192,7 @@ void MainWindow::paintEvent(QPaintEvent *event)
 
         painter.drawImage(QPoint(x, y), img);
     } else {
-        QImage img = image.scaled(QSize(width, height));
+        QImage img = m_image.scaled(QSize(width, height));
 
         painter.drawImage(QPoint(0, 0), img);
     }
@@ -199,7 +200,7 @@ void MainWindow::paintEvent(QPaintEvent *event)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (closeNotExit) {
+    if (m_closeNotExit) {
         /* ignore original close event */
         event->ignore();
 
@@ -224,7 +225,8 @@ void MainWindow::changeEvent(QEvent *event)
 
 bool MainWindow::eventFilter(QObject *object, QEvent *event)
 {
-    if (object == ui->videoProgressSlider) {
+	//??????
+	if (object == ui->videoProgressSlider) {
         if (event->type() == QEvent::MouseButtonPress) {
             QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
@@ -232,48 +234,49 @@ bool MainWindow::eventFilter(QObject *object, QEvent *event)
                 int pos = ui->videoProgressSlider->minimum() + duration * (static_cast<double>(mouseEvent->x()) / ui->videoProgressSlider->width());
                 if (pos != ui->videoProgressSlider->sliderPosition()) {
                     ui->videoProgressSlider->setValue(pos);
-                    decoder->seekProgress(static_cast<qint64>(pos) * 1000000);
+                    m_decoder->decoderSeekProgress(static_cast<qint64>(pos) * 1000000);
                 }
             }
         }
     }
-
+	//?????????????????????????????????????
+    //??????????evenFilter????
     return QObject::eventFilter(object, event);
 }
 
 void MainWindow::keyReleaseEvent(QKeyEvent *event)
 {
     int progressVal;
-    int volumnVal = decoder->getVolume();
+    int volumnVal = m_decoder->getVolume();
 
     switch (event->key()) {
     case Qt::Key_Up:
         if (volumnVal + VOLUME_INT > SDL_MIX_MAXVOLUME) {
-            decoder->setVolume(SDL_MIX_MAXVOLUME);
+            m_decoder->setVolume(SDL_MIX_MAXVOLUME);
         } else {
-            decoder->setVolume(volumnVal + VOLUME_INT);
+            m_decoder->setVolume(volumnVal + VOLUME_INT);
         }
         break;
 
     case Qt::Key_Down:
         if (volumnVal - VOLUME_INT < 0) {
-            decoder->setVolume(0);
+            m_decoder->setVolume(0);
         } else {
-            decoder->setVolume(volumnVal - VOLUME_INT);
+            m_decoder->setVolume(volumnVal - VOLUME_INT);
         }
         break;
 
     case Qt::Key_Left:
-        if (ui->videoProgressSlider->value() > seekInterval) {
-            progressVal = ui->videoProgressSlider->value() - seekInterval;
-            decoder->seekProgress(static_cast<qint64>(progressVal) * 1000000);
+        if (ui->videoProgressSlider->value() > m_seekInterval) {
+            progressVal = ui->videoProgressSlider->value() - m_seekInterval;
+            m_decoder->decoderSeekProgress(static_cast<qint64>(progressVal) * 1000000);
         }
         break;
 
     case Qt::Key_Right:
-        if (ui->videoProgressSlider->value() + seekInterval < ui->videoProgressSlider->maximum()) {
-            progressVal = ui->videoProgressSlider->value() + seekInterval;
-            decoder->seekProgress(static_cast<qint64>(progressVal) * 1000000);
+        if (ui->videoProgressSlider->value() + m_seekInterval < ui->videoProgressSlider->maximum()) {
+            progressVal = ui->videoProgressSlider->value() + m_seekInterval;
+            m_decoder->decoderSeekProgress(static_cast<qint64>(progressVal) * 1000000);
         }
         break;
 
@@ -296,14 +299,14 @@ void MainWindow::mouseMoveEvent(QMouseEvent *event)
     Q_UNUSED(event);
 
     /* stop timer & restart it while having mouse moving */
-    if (currentPlayType == "video") {
-        menuTimer->stop();
-        if (!menuIsVisible) {
+    if (m_currentPlayType == "video") {
+        m_menuTimer->stop();
+        if (!m_menuIsVisible) {
             showControl(true);
-            menuIsVisible = true;
+            m_menuIsVisible = true;
             QApplication::setOverrideCursor(Qt::ArrowCursor);
         }
-        menuTimer->start();
+        m_menuTimer->start();
     }
 }
 
@@ -331,31 +334,31 @@ void MainWindow::showPlayMenu()
 {
     QMenu *menu = new QMenu;
 
-    QAction * fullSrcAction = new QAction("全屏", this);
+    QAction * fullSrcAction = new QAction("FullScreen", this);
     fullSrcAction->setCheckable(true);
     if (isFullScreen()) {
         fullSrcAction->setChecked(true);
     }
 
-    QAction *keepRatioAction = new QAction("视频长宽比", this);
+    QAction *keepRatioAction = new QAction("KeepRatio", this);
     keepRatioAction->setCheckable(true);
-    if (isKeepAspectRatio) {
+    if (m_isKeepAspectRatio) {
         keepRatioAction->setChecked(true);
     }
 
-    QAction *autoPlayAction = new QAction("连续播放", this);
+    QAction *autoPlayAction = new QAction("AutoPlay", this);
     autoPlayAction->setCheckable(true);
-    if (autoPlay) {
+    if (m_autoPlay) {
         autoPlayAction->setChecked(true);
     }
 
-    QAction *loopPlayAction = new QAction("循环播放", this);
+    QAction *loopPlayAction = new QAction("LoopPlay", this);
     loopPlayAction->setCheckable(true);
-    if (loopPlay) {
+    if (m_loopPlay) {
         loopPlayAction->setChecked(true);
     }
 
-    QAction *captureAction = new QAction("截图", this);
+    QAction *captureAction = new QAction("Capture", this);
 
     connect(fullSrcAction,      SIGNAL(triggered(bool)), this, SLOT(setFullScreen()));
     connect(keepRatioAction,    SIGNAL(triggered(bool)), this, SLOT(setKeepRatio()));
@@ -387,17 +390,17 @@ void MainWindow::showPlayMenu()
 
 void MainWindow::setHide(QWidget *widget)
 {
-    hideVector.push_back(widget);
+    m_hideVector.push_back(widget);
 }
 
 void MainWindow::showControl(bool show)
 {
     if (show) {
-        for (QWidget *widget : hideVector) {
+        for (QWidget *widget : m_hideVector) {
             widget->show();
         }
     } else {
-        for (QWidget *widget : hideVector) {
+        for (QWidget *widget : m_hideVector) {
             widget->hide();
         }
     }
@@ -435,8 +438,8 @@ void MainWindow::addPathVideoToList(QString path)
         if (rx.exactMatch(fileInfo.fileName())) {
             QString filename = getFilenameFromPath(fileInfo.fileName());
             /* avoid adding repeat file */
-            if (!playList.contains(filename)) {
-                playList.push_back(fileInfo.absoluteFilePath());
+            if (!m_playList.contains(filename)) {
+                m_playList.push_back(fileInfo.absoluteFilePath());
             }
         }
     }
@@ -446,45 +449,45 @@ void MainWindow::playVideo(QString file)
 {
     emit stopVideo();
 
-    currentPlay = file;
-    currentPlayType = fileType(file);
-    if (currentPlayType == "video") {
-        menuTimer->start();
+    m_currentPlay = file;
+    m_currentPlayType = fileType(file);
+    if (m_currentPlayType == "video") {
+        m_menuTimer->start();
         ui->titleLable->setText("");
     } else {
-        menuTimer->stop();
-        if (!menuIsVisible) {
+        m_menuTimer->stop();
+        if (!m_menuIsVisible) {
             showControl(true);
-            menuIsVisible = true;
+            m_menuIsVisible = true;
         }
         ui->titleLable->setStyleSheet("color:rgb(25, 125, 203);font-size:24px;background: transparent;");
-        ui->titleLable->setText(QString("当前播放：%1").arg(getFilenameFromPath(file)));
+        ui->titleLable->setText(QString("Music:").arg(getFilenameFromPath(file)));
     }
 
-    emit selectedVideoFile(file, currentPlayType);
+    emit selectedVideoFile(file, m_currentPlayType);
 }
 
 void MainWindow::playNext()
 {
     int playIndex = 0;
-    int videoNum = playList.size();
+    int videoNum = m_playList.size();
 
     if (videoNum <= 0) {
         return;
     }
 
-    int currentIndex = playList.indexOf(currentPlay);
+    int currentIndex = m_playList.indexOf(m_currentPlay);
 
     if (currentIndex != videoNum - 1) {
         playIndex = currentIndex + 1;
     }
 
-    QString nextVideo = playList.at(playIndex);
+    QString nextVideo = m_playList.at(playIndex);
 
     /* check file whether exists */
     QFile file(nextVideo);
     if (!file.exists()) {
-        playList.removeAt(playIndex);
+        m_playList.removeAt(playIndex);
         return;
     }
 
@@ -494,8 +497,8 @@ void MainWindow::playNext()
 void MainWindow::playPreview()
 {
     int playIndex = 0;
-    int videoNum = playList.size();
-    int currentIndex = playList.indexOf(currentPlay);
+    int videoNum = m_playList.size();
+    int currentIndex = m_playList.indexOf(m_currentPlay);
 
     if (videoNum <= 0) {
         return;
@@ -511,12 +514,12 @@ void MainWindow::playPreview()
         playIndex = videoNum - 1;
     }
 
-    QString preVideo = playList.at(playIndex);
+    QString preVideo = m_playList.at(playIndex);
 
     /* check file whether exists */
     QFile file(preVideo);
     if (!file.exists()) {
-        playList.removeAt(playIndex);
+        m_playList.removeAt(playIndex);
         return;
     }
 
@@ -531,7 +534,7 @@ void MainWindow::buttonClickSlot()
 
     if (QObject::sender() == ui->btnOpenLocal) { // open local file
         filePath = QFileDialog::getOpenFileName(
-                this, "选择播放文件", "/",
+                this, "?????????", "/",
                 "(*.264 *.mp4 *.rmvb *.avi *.mov *.flv *.mkv *.ts *.mp3 *.flac *.ape *.wav)");
         if (!filePath.isNull() && !filePath.isEmpty()) {
             playVideo(filePath);
@@ -582,48 +585,48 @@ void MainWindow::setFullScreen()
 
 void MainWindow::setKeepRatio()
 {
-    isKeepAspectRatio = !isKeepAspectRatio;
+    m_isKeepAspectRatio = !m_isKeepAspectRatio;
 }
 
 void MainWindow::setAutoPlay()
 {
-    autoPlay = !autoPlay;
-    loopPlay = false;
+    m_autoPlay = !m_autoPlay;
+    m_loopPlay = false;
 }
 
 void MainWindow::setLoopPlay()
 {
-    loopPlay = !loopPlay;
-    autoPlay = false;
+    m_loopPlay = !m_loopPlay;
+    m_autoPlay = false;
 }
 
 void MainWindow::saveCurrentFrame()
 {
-    QString filename = QFileDialog::getSaveFileName(this, "保存截图", "/", "(*.jpg)");
-    image.save(filename);
+    QString filename = QFileDialog::getSaveFileName(this, "save file", "/", "(*.jpg)");
+    m_image.save(filename);
 }
 
 void MainWindow::timerSlot()
 {
-    if (QObject::sender() == menuTimer) {
-        if (menuIsVisible && playState == Decoder::PLAYING) {
+    if (QObject::sender() == m_menuTimer) {
+        if (m_menuIsVisible && m_playState == DecoderThread::PLAYING) {
             if (isFullScreen()) {
                 QApplication::setOverrideCursor(Qt::BlankCursor);
             }
             showControl(false);
-            menuIsVisible = false;
+            m_menuIsVisible = false;
         }
-    } else if (QObject::sender() == progressTimer) {
-        qint64 currentTime = static_cast<qint64>(decoder->getCurrentTime());
+    } else if (QObject::sender() == m_progressTimer) {
+        qint64 currentTime = static_cast<qint64>(m_decoder->getCurrentTime());
         ui->videoProgressSlider->setValue(currentTime);
 
         int hourCurrent = currentTime / 60 / 60;
         int minCurrent  = (currentTime / 60) % 60;
         int secCurrent  = currentTime % 60;
 
-        int hourTotal = timeTotal / 60 / 60;
-        int minTotal  = (timeTotal / 60) % 60;
-        int secTotal  = timeTotal % 60;
+        int hourTotal = m_timeTotal / 60 / 60;
+        int minTotal  = (m_timeTotal / 60) % 60;
+        int secTotal  = m_timeTotal % 60;
 
         ui->labelTime->setText(QString("%1.%2.%3 / %4:%5:%6")
                                .arg(hourCurrent, 2, 10, QLatin1Char('0'))
@@ -637,25 +640,25 @@ void MainWindow::timerSlot()
 
 void MainWindow::seekProgress(int value)
 {
-    decoder->seekProgress(static_cast<qint64>(value) * 1000000);
+    m_decoder->decoderSeekProgress(static_cast<qint64>(value) * 1000000);
 }
 
 void MainWindow::editText()
 {
     /* forbid control hide while inputting */
-    menuTimer->stop();
-    menuTimer->start();
+    m_menuTimer->stop();
+    m_menuTimer->start();
 }
 
 void MainWindow::videoTime(qint64 time)
 {
-    timeTotal = time / 1000000;
+    m_timeTotal = time / 1000000;
 
-    ui->videoProgressSlider->setRange(0, timeTotal);
+    ui->videoProgressSlider->setRange(0, m_timeTotal);
 
-    int hour = timeTotal / 60 / 60;
-    int min  = (timeTotal / 60 ) % 60;
-    int sec  = timeTotal % 60;
+    int hour = m_timeTotal / 60 / 60;
+    int min  = (m_timeTotal / 60 ) % 60;
+    int sec  = m_timeTotal % 60;
 
     ui->labelTime->setText(QString("00.00.00 / %1:%2:%3").arg(hour, 2, 10, QLatin1Char('0'))
                            .arg(min, 2, 10, QLatin1Char('0'))
@@ -664,47 +667,47 @@ void MainWindow::videoTime(qint64 time)
 
 void MainWindow::showVideo(QImage image)
 {
-    this->image = image;
+    this->m_image = image;
     update();
 }
 
-void MainWindow::playStateChanged(Decoder::PlayState state)
+void MainWindow::playStateChanged(DecoderThread::PlayState state)
 {
     switch (state) {
-    case Decoder::PLAYING:
+    case DecoderThread::PLAYING:
         ui->btnPause->setIcon(QIcon(":/image/pause.ico"));
-        playState = Decoder::PLAYING;
-        progressTimer->start();
+        m_playState = DecoderThread::PLAYING;
+        m_progressTimer->start();
         break;
 
-    case Decoder::STOP:
-        image = QImage(":/image/MUSIC.jpg");
+    case DecoderThread::STOP:
+        m_image = QImage(":/image/bac.jpg");
         ui->btnPause->setIcon(QIcon(":/image/play.ico"));
-        playState = Decoder::STOP;
-        progressTimer->stop();
+        m_playState = DecoderThread::STOP;
+        m_progressTimer->stop();
         ui->labelTime->setText(QString("00.00.00 / 00:00:00"));
         ui->videoProgressSlider->setValue(0);
-        timeTotal = 0;
+        m_timeTotal = 0;
         update();
         break;
 
-    case Decoder::PAUSE:
+    case DecoderThread::PAUSE:
         ui->btnPause->setIcon(QIcon(":/image/play.ico"));
-        playState = Decoder::PAUSE;
+        m_playState = DecoderThread::PAUSE;
         break;
 
-    case Decoder::FINISH:
-        if (autoPlay) {
+    case DecoderThread::FINISH:
+        if (m_autoPlay) {
             playNext();
-        } else if (loopPlay) {
-            emit selectedVideoFile(currentPlay, currentPlayType);
+        } else if (m_loopPlay) {
+            emit selectedVideoFile(m_currentPlay, m_currentPlayType);
         }else {
-            image = QImage(":/image/MUSIC.jpg");
-            playState = Decoder::STOP;
-            progressTimer->stop();
+            m_image = QImage(":/image/bac.jpg");
+            m_playState = DecoderThread::STOP;
+            m_progressTimer->stop();
             ui->labelTime->setText(QString("00.00.00 / 00:00:00"));
             ui->videoProgressSlider->setValue(0);
-            timeTotal = 0;
+            m_timeTotal = 0;
         }
         break;
 
